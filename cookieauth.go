@@ -98,6 +98,7 @@ func (ca *cookieauth) authFailed(w http.ResponseWriter) {
 		Name:   pkgID,
 		MaxAge: -1,
 	})
+	w.Header().Set("WWW-Authenticate", "Basic")
 	w.WriteHeader(http.StatusUnauthorized)
 	w.Write([]byte(http.StatusText(http.StatusUnauthorized)))
 }
