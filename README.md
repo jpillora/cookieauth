@@ -2,7 +2,7 @@
 
 Cookie-based Basic-Authentication HTTP middleware for Go (golang). Prevents the need to keep entering basic-auth username and passwords over and over.
 
-[![GoDoc](https://godoc.org/github.com/jpillora/cookieauth?status.svg)](https://godoc.org/github.com/jpillora/cookieauth)
+[![GoDoc](https://godoc.org/github.com/jpillora/cookieauth?status.svg)](https://godoc.org/github.com/jpillora/cookieauth)  [![CircleCI](https://circleci.com/gh/jpillora/cookieauth.svg?style=shield&circle-token=69ef9c6ac0d8cebcb354bb85c377eceff77bfb1b)](https://circleci.com/gh/jpillora/cookieauth)
 
 ### Usage
 
@@ -12,15 +12,30 @@ Get package:
 $ go get -v github.com/jpillora/cookieauth
 ```
 
-Protect `handler` with a username and password:
+Quick use:
 
 ``` go
 handler := http.HandlerFunc(...)
-protected := cookieauth.Wrap(handler, "myuser", "mypassword")
+protected := cookieauth.Wrap(handler, "foo", "bar")
 http.ListenAndServe(":3000", protected)
 ```
 
-Successful logins are hashed and stored in the client's user agent.
+Customized use:
+
+``` go
+handler := http.HandlerFunc(...)
+
+ca := cookieauth.New()
+ca.SetUserPass("foo", "bar")
+ca.SetExpiry(2 * time.Hour)
+ca.SetLogger(log.New(os.Stdout, "", log.LstdFlags))
+
+protected := ca.Wrap(handler)
+
+http.ListenAndServe(":3000", protected)
+```
+
+Successful logins are hashed using scrypt and stored in a cookie.
 
 #### MIT License
 
