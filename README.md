@@ -2,7 +2,7 @@
 
 Cookie-based Basic-Authentication HTTP middleware for Go (golang). Prevents the need to keep entering basic-auth username and passwords over and over.
 
-[![GoDoc](https://godoc.org/github.com/jpillora/cookieauth?status.svg)](https://godoc.org/github.com/jpillora/cookieauth)  [![CircleCI](https://circleci.com/gh/jpillora/cookieauth.svg?style=shield&circle-token=69ef9c6ac0d8cebcb354bb85c377eceff77bfb1b)](https://circleci.com/gh/jpillora/cookieauth)
+[![GoDoc](https://godoc.org/github.com/jpillora/cookieauth?status.svg)](https://godoc.org/github.com/jpillora/cookieauth)  [![CircleCI](https://circleci.com/gh/jpillora/cookieauth.svg?style=shield)](https://circleci.com/gh/jpillora/cookieauth)
 
 ### Usage
 
