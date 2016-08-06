@@ -72,8 +72,10 @@ func (ca *CookieAuth) SetExpiry(expiry time.Duration) {
 }
 
 func (ca *CookieAuth) SetLogger(l *log.Logger) {
+	if l.Prefix() == "" {
+		l.SetPrefix("[" + pkgID + "] ")
+	}
 	ca.mut.Lock()
-	l.SetPrefix("[" + pkgID + "] ")
 	ca.logger = l
 	ca.mut.Unlock()
 }
