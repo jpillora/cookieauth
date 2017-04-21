@@ -1,8 +1,14 @@
 # cookieauth
 
-Cookie-based Basic-Authentication HTTP middleware for Go (golang). Prevents the need to keep entering basic-auth username and passwords over and over.
+Cookie-based Basic-Authentication HTTP middleware for Go (golang). Stores `scrypt(user:pass)` in a cookie. Prevents the need to keep entering basic-auth username and passwords over and over.
 
 [![GoDoc](https://godoc.org/github.com/jpillora/cookieauth?status.svg)](https://godoc.org/github.com/jpillora/cookieauth)  [![CircleCI](https://circleci.com/gh/jpillora/cookieauth.svg?style=shield)](https://circleci.com/gh/jpillora/cookieauth)
+
+### Features
+
+* Simple
+* Thread-safe
+* Secured using [scrypt](https://en.wikipedia.org/wiki/Scrypt)
 
 ### Usage
 
@@ -26,6 +32,7 @@ Customized use:
 handler := http.HandlerFunc(...)
 
 ca := cookieauth.New()
+ca.SetID("session_token")
 ca.SetUserPass("foo", "bar")
 ca.SetExpiry(2 * time.Hour)
 ca.SetLogger(log.New(os.Stdout, "", log.LstdFlags))
