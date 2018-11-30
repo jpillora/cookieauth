@@ -208,7 +208,6 @@ func (ca *CookieAuth) generateCookie(b64 string, expires time.Time) *http.Cookie
 
 func (ca *CookieAuth) authFailed(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{Name: ca.id, MaxAge: -1})
-	http.SetCookie(w, &http.Cookie{Name: ca.id, MaxAge: -1})
 	w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Basic realm="%s"`, ca.realm))
 	w.WriteHeader(http.StatusUnauthorized)
 	w.Write([]byte(http.StatusText(http.StatusUnauthorized)))
