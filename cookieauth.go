@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"fmt"
 
 	scrypt "github.com/elithrar/simple-scrypt"
 	lru "github.com/hashicorp/golang-lru"
@@ -30,6 +31,7 @@ func New() *CookieAuth {
 		expiry: fortnight,
 		path:   "/",
 		auth:   nil,
+		realm:  "",
 		logger: nil,
 		cache:  l,
 		next:   nil,
@@ -41,6 +43,7 @@ type CookieAuth struct {
 	mut    sync.RWMutex
 	id     string
 	auth   []byte
+	realm  string
 	expiry time.Duration
 	path   string
 	logger *log.Logger
@@ -48,9 +51,10 @@ type CookieAuth struct {
 	next   http.Handler
 }
 
-func Wrap(next http.Handler, user, pass string) http.Handler {
+func Wrap(next http.Handler, user, pass, realm string) http.Handler {
 	ca := New()
 	ca.SetUserPass(user, pass)
+	ca.SetRealm(realm)
 	return ca.Wrap(next)
 }
 
@@ -76,6 +80,15 @@ func (ca *CookieAuth) SetUserPass(user, pass string) *CookieAuth {
 	} else {
 		ca.auth = concat(user, pass)
 	}
+	ca.cache.Purge()
+	ca.mut.Unlock()
+	return ca
+}
+
+//SetRealm sets the realm for the authentication response (default: "")
+func (ca *CookieAuth) SetRealm(realm string) *CookieAuth {
+	ca.mut.Lock()
+	ca.realm = realm
 	ca.cache.Purge()
 	ca.mut.Unlock()
 	return ca
@@ -187,7 +200,7 @@ func (ca *CookieAuth) generateCookie(b64 string, expires time.Time) *http.Cookie
 
 func (ca *CookieAuth) authFailed(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{Name: ca.id, MaxAge: -1})
-	w.Header().Set("WWW-Authenticate", "Basic")
+	w.Header().Set("WWW-Authenticate", fmt.Sprintf("Basic realm=\"%s\"", ca.realm))
 	w.WriteHeader(http.StatusUnauthorized)
 	w.Write([]byte(http.StatusText(http.StatusUnauthorized)))
 }
