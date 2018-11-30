@@ -4,13 +4,13 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"fmt"
 
 	scrypt "github.com/elithrar/simple-scrypt"
 	lru "github.com/hashicorp/golang-lru"
@@ -51,7 +51,15 @@ type CookieAuth struct {
 	next   http.Handler
 }
 
-func Wrap(next http.Handler, user, pass, realm string) http.Handler {
+//Wrap the provided handler with basic auth
+func Wrap(next http.Handler, user, pass string) http.Handler {
+	ca := New()
+	ca.SetUserPass(user, pass)
+	return ca.Wrap(next)
+}
+
+//WrapWithRealm the provided handler with basic auth in the given realm
+func WrapWithRealm(next http.Handler, user, pass, realm string) http.Handler {
 	ca := New()
 	ca.SetUserPass(user, pass)
 	ca.SetRealm(realm)
@@ -88,7 +96,7 @@ func (ca *CookieAuth) SetUserPass(user, pass string) *CookieAuth {
 //SetRealm sets the realm for the authentication response (default: "")
 func (ca *CookieAuth) SetRealm(realm string) *CookieAuth {
 	ca.mut.Lock()
-	ca.realm = realm
+	ca.realm = strings.Replace(realm, `"`, ``, -1)
 	ca.cache.Purge()
 	ca.mut.Unlock()
 	return ca
@@ -200,7 +208,8 @@ func (ca *CookieAuth) generateCookie(b64 string, expires time.Time) *http.Cookie
 
 func (ca *CookieAuth) authFailed(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{Name: ca.id, MaxAge: -1})
-	w.Header().Set("WWW-Authenticate", fmt.Sprintf("Basic realm=\"%s\"", ca.realm))
+	http.SetCookie(w, &http.Cookie{Name: ca.id, MaxAge: -1})
+	w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Basic realm="%s"`, ca.realm))
 	w.WriteHeader(http.StatusUnauthorized)
 	w.Write([]byte(http.StatusText(http.StatusUnauthorized)))
 }
