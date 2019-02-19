@@ -215,21 +215,21 @@ func (ca *CookieAuth) authFailed(w http.ResponseWriter) {
 
 func (ca *CookieAuth) authWithCreds(user, pass string) (string, error) {
 	//check password
-	if subtle.ConstantTimeCompare(ca.auth, concat(user, pass)) != 1 {
+	if subtle.ConstantTimeCompare(ca.getAuth(), concat(user, pass)) != 1 {
 		return "", errors.New("incorrect password")
 	}
 	//cached token?
-	if b64, ok := ca.cache.Get(string(ca.auth)); ok {
+	if b64, ok := ca.cache.Get(string(ca.getAuth())); ok {
 		return b64.(string), nil
 	}
 	//generate password hash
-	hash, err := scrypt.GenerateFromPassword(ca.auth, params)
+	hash, err := scrypt.GenerateFromPassword(ca.getAuth(), params)
 	if err != nil {
 		return "", errors.New("hash failed")
 	}
 	//encode base64
 	b64 := base64.StdEncoding.EncodeToString(hash)
-	ca.cache.Add(string(ca.auth), b64)
+	ca.cache.Add(string(ca.getAuth()), b64)
 	return b64, nil
 }
 
