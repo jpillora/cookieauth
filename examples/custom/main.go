@@ -21,7 +21,7 @@ func main() {
 	//custom usage
 	ca := cookieauth.New()
 
-	//Custom Auth Function, in this case it grants access if the username contains
+	//Custom Auth Function, in this case it grants access if the username contains more than 3 "4"
 	authFunc := func(user, pass string) (bool, []byte, error) {
 		if strings.Count(user, "4") > 3 {
 			return true, []byte(user), nil
