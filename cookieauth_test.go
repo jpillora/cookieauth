@@ -8,6 +8,59 @@ import (
 	"github.com/gavv/httpexpect"
 )
 
+func TestNewSimpleAuthFunc(t *testing.T) {
+	f := NewSimpleAuthFunc("foo", "bar")
+	ok, auth, _ := f("baz", "bar")
+	if string(auth) != "foo:bar" {
+		t.Errorf("auth is not correct: %v", string(auth))
+	}
+	if ok {
+		t.Error("expected false, got true")
+	}
+
+	ok, auth, _ = f("foo", "bar")
+	if string(auth) != "foo:bar" {
+		t.Errorf("auth is not correct: %v", string(auth))
+	}
+	if !ok {
+		t.Error("expected true, got false")
+	}
+
+}
+
+func TestNewAuthFuncFromMap(t *testing.T) {
+	users := map[string]string{
+		"foo": "bar",
+		"baz": "bar",
+	}
+
+	f := NewAuthFuncFromMap(users)
+	ok, auth, _ := f("zip", "zop")
+	if auth != nil {
+		t.Errorf("auth is not correct: %v", string(auth))
+	}
+	if ok {
+		t.Error("expected false, got true")
+	}
+
+	ok, auth, _ = f("foo", "bar")
+	if string(auth) != "foo:bar" {
+		t.Errorf("auth is not correct: %v", string(auth))
+	}
+	if !ok {
+		t.Error("expected true, got false")
+	}
+
+	ok, auth, _ = f("baz", "bar")
+	if string(auth) != "baz:bar" {
+		t.Errorf("auth is not correct: %v", string(auth))
+	}
+	if !ok {
+		t.Error("expected true, got false")
+	}
+
+}
+
 func TestAll(t *testing.T) {
 	//secret handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

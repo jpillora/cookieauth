@@ -39,16 +39,47 @@ func New() *CookieAuth {
 	return ca
 }
 
+//AuthFunc accepts user and password and provides a boolean value if the user/pasoword combination is valid,
+//a slice of bytes which contains an identifier of the user (a concatenation of user and password is an example) and an error
+type AuthFunc func(user string, password string) (bool, []byte, error)
+
+func NewSimpleAuthFunc(username, password string) AuthFunc {
+	auth := concat(username, password)
+	return func(user, pass string) (bool, []byte, error) {
+		if subtle.ConstantTimeCompare(auth, concat(user, pass)) == 1 {
+			return true, auth, nil
+		}
+
+		return false, nil, nil
+	}
+}
+
+func NewAuthFuncFromMap(users map[string]string) AuthFunc {
+
+	return func(user, pass string) (bool, []byte, error) {
+		if users[user] != "" {
+			auth := concat(user, users[user])
+			if subtle.ConstantTimeCompare(auth, concat(user, pass)) == 1 {
+				return true, auth, nil
+			}
+		}
+
+		return false, nil, nil
+	}
+}
+
+//CookieAuth implements the a cookie based HTTP basic auth middleware
 type CookieAuth struct {
-	mut    sync.RWMutex
-	id     string
-	auth   []byte
-	realm  string
-	expiry time.Duration
-	path   string
-	logger *log.Logger
-	cache  *lru.Cache
-	next   http.Handler
+	mut      sync.RWMutex
+	id       string
+	auth     []byte
+	authFunc AuthFunc
+	realm    string
+	expiry   time.Duration
+	path     string
+	logger   *log.Logger
+	cache    *lru.Cache
+	next     http.Handler
 }
 
 //Wrap the provided handler with basic auth
@@ -62,6 +93,14 @@ func Wrap(next http.Handler, user, pass string) http.Handler {
 func WrapWithRealm(next http.Handler, user, pass, realm string) http.Handler {
 	ca := New()
 	ca.SetUserPass(user, pass)
+	ca.SetRealm(realm)
+	return ca.Wrap(next)
+}
+
+//WrapWithFunc the provider handler with basic auth using the AuthFunc provided
+func WrapWithFunc(next http.Handler, authFunc AuthFunc, realm string) http.Handler {
+	ca := New()
+	ca.SetAuthFunc(authFunc)
 	ca.SetRealm(realm)
 	return ca.Wrap(next)
 }
@@ -84,10 +123,21 @@ func (ca *CookieAuth) SetNextHandler(next http.Handler) *CookieAuth {
 func (ca *CookieAuth) SetUserPass(user, pass string) *CookieAuth {
 	ca.mut.Lock()
 	if user == "" && pass == "" {
-		ca.auth = nil
+		ca.authFunc = nil
 	} else {
-		ca.auth = concat(user, pass)
+		ca.authFunc = NewSimpleAuthFunc(user, pass)
 	}
+	ca.auth = nil
+	ca.cache.Purge()
+	ca.mut.Unlock()
+	return ca
+}
+
+//SetAuthFunc sets the current authFunc
+func (ca *CookieAuth) SetAuthFunc(f AuthFunc) *CookieAuth {
+	ca.mut.Lock()
+	ca.authFunc = f
+	ca.auth = nil
 	ca.cache.Purge()
 	ca.mut.Unlock()
 	return ca
@@ -141,8 +191,8 @@ func (ca *CookieAuth) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ca.mut.RLock()
 	caid := ca.id
 	ca.mut.RUnlock()
-	//no creds
-	if len(ca.getAuth()) == 0 {
+	//no authFunc, so no credentials
+	if ca.authFunc == nil {
 		ca.next.ServeHTTP(w, r)
 		return
 	}
@@ -197,6 +247,16 @@ func (ca *CookieAuth) getAuth() []byte {
 	return b
 }
 
+func (ca *CookieAuth) setAuth(auth []byte) *CookieAuth {
+	//In principle we have no need of purging cache
+	//since having other cached users may be useful
+	ca.mut.Lock()
+	ca.auth = auth
+	//ca.cache.Purge()
+	ca.mut.Unlock()
+	return ca
+}
+
 func (ca *CookieAuth) generateCookie(b64 string, expires time.Time) *http.Cookie {
 	return &http.Cookie{
 		Name:    ca.id,
@@ -214,10 +274,23 @@ func (ca *CookieAuth) authFailed(w http.ResponseWriter) {
 }
 
 func (ca *CookieAuth) authWithCreds(user, pass string) (string, error) {
-	//check password
-	if subtle.ConstantTimeCompare(ca.getAuth(), concat(user, pass)) != 1 {
-		return "", errors.New("incorrect password")
+
+	if ca.authFunc == nil {
+		return "", errors.New("authFunc is nil")
 	}
+
+	//check password
+	ok, auth, err := ca.authFunc(user, pass)
+	if err != nil {
+		return "", errors.New("authFunc error")
+	}
+
+	if !ok {
+		return "", errors.New("incorrect user/password")
+	}
+
+	ca.setAuth(auth)
+
 	//cached token?
 	if b64, ok := ca.cache.Get(string(ca.getAuth())); ok {
 		return b64.(string), nil
