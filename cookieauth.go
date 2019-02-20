@@ -98,13 +98,21 @@ func WrapWithRealm(next http.Handler, user, pass, realm string) http.Handler {
 }
 
 //WrapWithFunc the provider handler with basic auth using the AuthFunc provided
-func WrapWithFunc(next http.Handler, authFunc AuthFunc, realm string) http.Handler {
+func WrapWithFunc(next http.Handler, authFunc AuthFunc) http.Handler {
+	ca := New()
+	ca.SetAuthFunc(authFunc)
+	return ca.Wrap(next)
+}
+
+//WrapWithRealmWithFunc the provider handler with basic auth using the AuthFunc provided in the given realm
+func WrapWithRealmWithFunc(next http.Handler, authFunc AuthFunc, realm string) http.Handler {
 	ca := New()
 	ca.SetAuthFunc(authFunc)
 	ca.SetRealm(realm)
 	return ca.Wrap(next)
 }
 
+//Wrap the provider handler
 func (ca *CookieAuth) Wrap(next http.Handler) http.Handler {
 	ca.SetNextHandler(next)
 	return ca
