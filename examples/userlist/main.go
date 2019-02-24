@@ -24,9 +24,9 @@ func main() {
 		"foo": "bar",
 		"baz": "bar",
 	}
-	authFunc := cookieauth.NewAuthFuncFromMap(users)
+	auth := cookieauth.NewUsersAuth(users)
 
-	ca.SetAuthFunc(authFunc)
+	ca.SetAuth(auth)
 	ca.SetLogger(log.New(os.Stdout, "", log.LstdFlags))
 	protected := ca.Wrap(handler)
 

@@ -1,7 +1,6 @@
 package cookieauth
 
 import (
-	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -25,61 +24,34 @@ const (
 var params = scrypt.Params{N: 16384, R: 8, P: 1, SaltLen: 16, DKLen: 32}
 
 func New() *CookieAuth {
-	l, _ := lru.New(cacheSize)
+	l, err := lru.New(cacheSize)
+	if err != nil {
+		panic("error in cache creation")
+	}
 	ca := &CookieAuth{
 		id:     "cookieauth",
 		expiry: fortnight,
 		path:   "/",
 		auth:   nil,
 		realm:  "",
-		logger: nil,
 		cache:  l,
+		logger: nil,
 		next:   nil,
 	}
 	return ca
 }
 
-//AuthFunc accepts user and password and provides a boolean value if the user/pasoword combination is valid,
-//a slice of bytes which contains an identifier of the user (a concatenation of user and password is an example) and an error
-type AuthFunc func(user string, password string) (bool, []byte, error)
-
-func NewSimpleAuthFunc(username, password string) AuthFunc {
-	auth := concat(username, password)
-	return func(user, pass string) (bool, []byte, error) {
-		if subtle.ConstantTimeCompare(auth, concat(user, pass)) == 1 {
-			return true, auth, nil
-		}
-
-		return false, nil, nil
-	}
-}
-
-func NewAuthFuncFromMap(users map[string]string) AuthFunc {
-
-	return func(user, pass string) (bool, []byte, error) {
-		if users[user] != "" {
-			auth := concat(user, users[user])
-			if subtle.ConstantTimeCompare(auth, concat(user, pass)) == 1 {
-				return true, auth, nil
-			}
-		}
-
-		return false, nil, nil
-	}
-}
-
 //CookieAuth implements the a cookie based HTTP basic auth middleware
 type CookieAuth struct {
-	mut      sync.RWMutex
-	id       string
-	auth     []byte
-	authFunc AuthFunc
-	realm    string
-	expiry   time.Duration
-	path     string
-	logger   *log.Logger
-	cache    *lru.Cache
-	next     http.Handler
+	mut    sync.RWMutex
+	id     string
+	auth   Authenticator
+	realm  string
+	expiry time.Duration
+	path   string
+	cache  *lru.Cache
+	logger *log.Logger
+	next   http.Handler
 }
 
 //Wrap the provided handler with basic auth
@@ -93,21 +65,6 @@ func Wrap(next http.Handler, user, pass string) http.Handler {
 func WrapWithRealm(next http.Handler, user, pass, realm string) http.Handler {
 	ca := New()
 	ca.SetUserPass(user, pass)
-	ca.SetRealm(realm)
-	return ca.Wrap(next)
-}
-
-//WrapWithFunc the provider handler with basic auth using the AuthFunc provided
-func WrapWithFunc(next http.Handler, authFunc AuthFunc) http.Handler {
-	ca := New()
-	ca.SetAuthFunc(authFunc)
-	return ca.Wrap(next)
-}
-
-//WrapWithRealmWithFunc the provider handler with basic auth using the AuthFunc provided in the given realm
-func WrapWithRealmWithFunc(next http.Handler, authFunc AuthFunc, realm string) http.Handler {
-	ca := New()
-	ca.SetAuthFunc(authFunc)
 	ca.SetRealm(realm)
 	return ca.Wrap(next)
 }
@@ -131,21 +88,19 @@ func (ca *CookieAuth) SetNextHandler(next http.Handler) *CookieAuth {
 func (ca *CookieAuth) SetUserPass(user, pass string) *CookieAuth {
 	ca.mut.Lock()
 	if user == "" && pass == "" {
-		ca.authFunc = nil
+		ca.auth = nil
 	} else {
-		ca.authFunc = NewSimpleAuthFunc(user, pass)
+		ca.auth = NewUserAuth(user, pass)
 	}
-	ca.auth = nil
 	ca.cache.Purge()
 	ca.mut.Unlock()
 	return ca
 }
 
-//SetAuthFunc sets the current authFunc
-func (ca *CookieAuth) SetAuthFunc(f AuthFunc) *CookieAuth {
+//SetAuth sets the authenticator
+func (ca *CookieAuth) SetAuth(auth Authenticator) *CookieAuth {
 	ca.mut.Lock()
-	ca.authFunc = f
-	ca.auth = nil
+	ca.auth = auth
 	ca.cache.Purge()
 	ca.mut.Unlock()
 	return ca
@@ -199,8 +154,8 @@ func (ca *CookieAuth) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ca.mut.RLock()
 	caid := ca.id
 	ca.mut.RUnlock()
-	//no authFunc, so no credentials
-	if ca.authFunc == nil {
+	//no credentials
+	if ca.auth == nil {
 		ca.next.ServeHTTP(w, r)
 		return
 	}
@@ -247,24 +202,6 @@ func (ca *CookieAuth) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ca.authFailed(w)
 }
 
-func (ca *CookieAuth) getAuth() []byte {
-	ca.mut.RLock()
-	b := make([]byte, len(ca.auth))
-	copy(b, ca.auth)
-	ca.mut.RUnlock()
-	return b
-}
-
-func (ca *CookieAuth) setAuth(auth []byte) *CookieAuth {
-	//In principle we have no need of purging cache
-	//since having other cached users may be useful
-	ca.mut.Lock()
-	ca.auth = auth
-	//ca.cache.Purge()
-	ca.mut.Unlock()
-	return ca
-}
-
 func (ca *CookieAuth) generateCookie(b64 string, expires time.Time) *http.Cookie {
 	return &http.Cookie{
 		Name:    ca.id,
@@ -283,34 +220,30 @@ func (ca *CookieAuth) authFailed(w http.ResponseWriter) {
 
 func (ca *CookieAuth) authWithCreds(user, pass string) (string, error) {
 
-	if ca.authFunc == nil {
-		return "", errors.New("authFunc is nil")
+	if ca.auth == nil {
+		return "", errors.New("no auth specified")
 	}
 
 	//check password
-	ok, auth, err := ca.authFunc(user, pass)
+	ok, hash, err := ca.auth.WithCreds(user, pass)
 	if err != nil {
-		return "", errors.New("authFunc error")
+		return "", errors.New("auth error")
 	}
-
 	if !ok {
 		return "", errors.New("incorrect user/password")
 	}
 
-	ca.setAuth(auth)
-
 	//cached token?
-	if b64, ok := ca.cache.Get(string(ca.getAuth())); ok {
+	if b64, ok := ca.cache.Get(string(hash)); ok {
 		return b64.(string), nil
 	}
-	//generate password hash
-	hash, err := scrypt.GenerateFromPassword(ca.getAuth(), params)
-	if err != nil {
-		return "", errors.New("hash failed")
-	}
+
 	//encode base64
 	b64 := base64.StdEncoding.EncodeToString(hash)
-	ca.cache.Add(string(ca.getAuth()), b64)
+
+	ca.cache.Add(string(hash), b64)
+
+	fmt.Printf("%s -> %s", string(hash), string(b64))
 	return b64, nil
 }
 
@@ -334,21 +267,20 @@ func (ca *CookieAuth) authWithCookie(c *http.Cookie) (*http.Cookie, error) {
 	if epoch == 0 || expires.Sub(time.Unix(epoch, 0)) > setCookieAfter {
 		c2 = ca.generateCookie(b64, expires)
 	}
-	//cached token?
-	if ca.cache.Contains(b64) {
-		return c2, nil
-	}
+
 	//decode base64
 	hash, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
-		return nil, errors.New("b64 error")
+		return nil, errors.New("b64 decoding error")
 	}
-	//check password hash
-	if err := scrypt.CompareHashAndPassword(hash, ca.getAuth()); err != nil {
+
+	ok, err := ca.auth.WithCookie(hash)
+	if err != nil {
 		return nil, err
 	}
-	//cache result!
-	ca.cache.Add(b64, true)
+	if !ok {
+		return nil, errors.New("incorrect cookie")
+	}
 	//success
 	return c2, nil
 }
