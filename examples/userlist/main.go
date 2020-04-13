@@ -19,7 +19,14 @@ func main() {
 
 	//custom usage
 	ca := cookieauth.New()
-	ca.SetUserPass("foo", "bar")
+
+	users := map[string]string{
+		"foo": "bar",
+		"baz": "bar",
+	}
+	auth := cookieauth.NewUsersAuth(users)
+
+	ca.SetAuth(auth)
 	ca.SetLogger(log.New(os.Stdout, "", log.LstdFlags))
 	protected := ca.Wrap(handler)
 
